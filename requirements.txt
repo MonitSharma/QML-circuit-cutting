@@ -14,4 +14,3 @@ qiskit_machine_learning
 qiskit_optimization
 qiskit_ibm_runtime
 pylatexenc
-pandas
