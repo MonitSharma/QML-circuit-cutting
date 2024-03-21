@@ -52,3 +52,8 @@ For this project, we have opted to adopt the Workflow A structure. This design d
 [^4]: L. Brenner, C. Piveteau, and D. Sutter, “Optimal wire cutting with classical communication,” arXiv.org, Feb. 07, 2023. https://arxiv.org/abs/2302.03366
 [^5]: Mehmet Akturk, “Diabetes Dataset,” Kaggle.com, 2020. https://www.kaggle.com/datasets/mathchi/diabetes-data-set
 [^6]: M. Beisel, J. Barzen, M. Bechtold, F. Leymann, F. Truger, and B. Weder, “QuantME4VQA: Modeling and Executing Variational Quantum Algorithms Using Workflows,” Proceedings of the 13th International Conference on Cloud Computing and Services Science, 2023, doi: https://doi.org/10.5220/0011997500003488.
+
+
+[QRAO](https://github.com/qiskit-community/qiskit-optimization/blob/main/qiskit_optimization/algorithms/qrao/quantum_random_access_optimizer.py)
+
+[VQE](https://github.com/qiskit-community/qiskit-algorithms/blob/main/qiskit_algorithms/minimum_eigensolvers/vqe.py)

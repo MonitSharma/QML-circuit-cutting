@@ -65,7 +65,7 @@ def get_expectation(circuit,str,observable):
             subobservables,
         )
             
-        return reconstructed_expvals[0]
+        return sum(reconstructed_expvals)
     return execute_circ
     
 
