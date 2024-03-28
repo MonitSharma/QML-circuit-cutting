@@ -26,7 +26,7 @@ from .search_space_generator import (
     SearchSpaceGenerator,
 )
 from .disjoint_subcircuits_state import DisjointSubcircuitsState
-from .circuit_interface import SimpleGateList, CircuitElement, GateSpec
+from .circuit_interface import SimpleGateList, GateSpec
 from .optimization_settings import OptimizationSettings
 from .quantum_device_constraints import DeviceConstraints
 
@@ -43,13 +43,13 @@ class CutOptimizationFuncArgs:
 
 def cut_optimization_cost_func(
     state: DisjointSubcircuitsState, func_args: CutOptimizationFuncArgs
-) -> tuple[int | float, int]:
+) -> tuple[float, int]:
     """Return the cost function.
 
-    The particular cost function chosen here aims to minimize the gamma
-    while also (secondarily) giving preference to circuit partitionings
-    that balance the sizes of the resulting partitions, by minimizing the
-    maximum width across subcircuits.
+    The particular cost function chosen here aims to minimize the classical
+    overhead, gamma, while also (secondarily) giving preference to circuit
+    partitionings that balance the sizes of the resulting partitions, by
+    minimizing the maximum width across subcircuits.
     """
     # pylint: disable=unused-argument
     return (state.lower_bound_gamma(), state.get_max_width())
@@ -57,16 +57,16 @@ def cut_optimization_cost_func(
 
 def cut_optimization_upper_bound_cost_func(
     goal_state, func_args: CutOptimizationFuncArgs
-) -> tuple[int | float, int | float]:
-    """Return the gamma upper bound."""
+) -> tuple[float, float]:
+    """Return the value of gamma computed assuming all LO cuts."""
     # pylint: disable=unused-argument
     return (goal_state.upper_bound_gamma(), np.inf)
 
 
 def cut_optimization_min_cost_bound_func(
     func_args: CutOptimizationFuncArgs,
-) -> tuple[int | float, int | float] | None:
-    """Return an a priori min-cost bound defined in the optimization settings."""
+) -> tuple[float, float] | None:
+    """Return the a priori min-cost bound defined in the optimization settings."""
     if func_args.max_gamma is None:  # pragma: no cover
         return None
 
@@ -77,10 +77,11 @@ def cut_optimization_next_state_func(
     state: DisjointSubcircuitsState, func_args: CutOptimizationFuncArgs
 ) -> list[DisjointSubcircuitsState]:
     """Generate a list of next states from the input state."""
-    # Get the entangling gate spec that is to be processed next based
-    # on the search level of the input state.
     assert func_args.entangling_gates is not None
     assert func_args.search_actions is not None
+
+    # Get the entangling gate spec that is to be processed next based
+    # on the search level of the input state.
 
     gate_spec = func_args.entangling_gates[state.get_search_level()]
 
@@ -89,16 +90,15 @@ def cut_optimization_next_state_func(
     # placed on how the current entangling gate is to be handled.
 
     gate = gate_spec.gate
-    gate = cast(CircuitElement, gate_spec.gate)
     if len(gate.qubits) == 2:
         action_list = func_args.search_actions.get_group("TwoQubitGates")
     else:
         raise ValueError(
-            "In the current version, only the cutting of two qubit gates is supported."
+            "The input circuit must contain only single and two-qubits gates. Found "
+            f"{len(gate.qubits)}-qubit gate: ({gate.name})."
         )
 
     gate_actions = gate_spec.cut_constraints
-    gate_actions = cast(list, gate_actions)
     action_list = get_action_subset(action_list, gate_actions)
 
     # Apply the search actions to generate a list of next states.
@@ -119,7 +119,7 @@ def cut_optimization_goal_state_func(
 
 
 ### Global variable that holds the search-space functions for generating
-### the cut optimization search space
+### the cut optimization search space.
 cut_optimization_search_funcs = SearchFunctions(
     cost_func=cut_optimization_cost_func,
     upperbound_cost_func=cut_optimization_upper_bound_cost_func,
@@ -136,11 +136,17 @@ def greedy_cut_optimization(
     search_space_funcs: SearchFunctions = cut_optimization_search_funcs,
     search_actions: ActionNames = disjoint_subcircuit_actions,
 ) -> DisjointSubcircuitsState | None:
-    """Peform a first pass at cut optimization using greedy best first search."""
+    """Peform a first pass at cut optimization using greedy best first search.
+
+    This step is effectively used to warm start our algorithm. It ignores the user
+    specified constraint ``max_gamma``. Its primary purpose is to estimate an upper
+    bound on the actual minimum gamma. Its secondary purpose is to provide a guaranteed
+    "anytime" solution (`<https://en.wikipedia.org/wiki/Anytime_algorithm>`).
+    """
     func_args = CutOptimizationFuncArgs()
     func_args.entangling_gates = circuit_interface.get_multiqubit_gates()
     func_args.search_actions = search_actions
-    func_args.max_gamma = optimization_settings.get_max_gamma()
+    func_args.max_gamma = optimization_settings.get_max_gamma
     func_args.qpu_width = device_constraints.get_qpu_width()
 
     start_state = DisjointSubcircuitsState(
@@ -157,34 +163,30 @@ class CutOptimization:
 
     Because of the condition of no qubit reuse, it is assumed that
     there is no circuit folding (i.e., when mid-circuit measurement and active
-    reset are not available).
-
-    CutOptimization focuses on using circuit cutting to create disjoint subcircuits.
-    It then uses upper and lower bounds on the resulting
-    gamma in order to decide where and how to cut while deferring the exact
-    choices of quasiprobability decompositions.
+    reset are not available). Cuts are placed with the goal of finding
+    separable subcircuits.
 
     Member Variables:
-    circuit (:class:`CircuitInterface`) is the interface for the circuit
+    ``circuit`` (:class:`CircuitInterface`) is the interface for the circuit
     to be cut.
 
-    settings (:class:`OptimizationSettings`) contains the settings that
+    ``settings`` (:class:`OptimizationSettings`) contains the settings that
     control the optimization process.
 
-    constraints (:class:`DeviceConstraints`) contains the device constraints
+    ``constraints`` (:class:`DeviceConstraints`) contains the device constraints
     that solutions must obey.
 
-    search_funcs (:class:`SearchFunctions`) holds the functions needed to generate
+    ``search_funcs`` (:class:`SearchFunctions`) holds the functions needed to generate
     and explore the cut optimization search space.
 
-    func_args (:class:`CutOptimizationFuncArgs`) contains the necessary device constraints
+    ``func_args`` (:class:`CutOptimizationFuncArgs`) contains the necessary device constraints
     and optimization settings parameters that are needed by the cut optimization
     search-space function.
 
-    search_actions (:class:`ActionNames`) contains the allowed actions that are used to
+    ``search_actions`` (:class:`ActionNames`) contains the allowed actions that are used to
     generate the search space.
 
-    search_engine (:class`BestFirstSearch`) implements the search algorithm.
+    ``search_engine`` (:class`BestFirstSearch`) implements the search algorithm.
     """
 
     def __init__(
@@ -199,14 +201,7 @@ class CutOptimization:
             )
         },
     ):
-        """Assign member variables.
-
-        An instance of :class:`CutOptimization` must be initialized with
-        a specification of all of the parameters of the optimization to be
-        performed: i.e., the circuit to be cut, the optimization settings,
-        the target-device constraints, the functions for generating the
-        search space, and the allowed search actions.
-        """
+        """Assign member variables."""
         generator = search_engine_config["CutOptimization"]
         search_space_funcs = generator.functions
         search_space_actions = generator.actions
@@ -224,7 +219,7 @@ class CutOptimization:
         self.func_args = CutOptimizationFuncArgs()
         self.func_args.entangling_gates = self.circuit.get_multiqubit_gates()
         self.func_args.search_actions = self.search_actions
-        self.func_args.max_gamma = self.settings.get_max_gamma()
+        self.func_args.max_gamma = self.settings.get_max_gamma
         self.func_args.qpu_width = self.constraints.get_qpu_width()
 
         # Perform an initial greedy best-first search to determine an upper
@@ -239,15 +234,17 @@ class CutOptimization:
         ################################################################################
 
         # Use the upper bound for the optimal gamma to determine the maximum
-        # number of wire cuts that can be performed when allocating the
-        # data structures in the actual state.
+        # number of wire cuts that can be performed.
         max_wire_cuts = max_wire_cuts_circuit(self.circuit)
 
         if self.greedy_goal_state is not None:
             mwc = max_wire_cuts_gamma(self.greedy_goal_state.upper_bound_gamma())
             max_wire_cuts = min(max_wire_cuts, mwc)
 
-        elif self.func_args.max_gamma is not None:
+        # The elif block below covers a rare edge case
+        # which would need a clever circuit to get tested.
+        # Excluding from test coverage for now.
+        elif self.func_args.max_gamma is not None:  # pragma: no cover
             mwc = max_wire_cuts_gamma(self.func_args.max_gamma)
             max_wire_cuts = min(max_wire_cuts, mwc)
 
@@ -272,12 +269,12 @@ class CutOptimization:
         self.search_engine = sq
         self.goal_state_returned = False
 
-    def optimization_pass(self) -> tuple[DisjointSubcircuitsState, int | float]:
+    def optimization_pass(self) -> tuple[DisjointSubcircuitsState, float]:
         """Produce, at each call, a goal state representing a distinct set of cutting decisions.
 
-        None is returned once no additional choices
-        of cuts can be made without exceeding the minimum upper bound across
-        all cutting decisions previously returned, given the optimization settings.
+        None is returned once no additional choices of cuts can be made
+        without exceeding the minimum upper bound across all cutting
+        decisions previously returned.
         """
         state, cost = self.search_engine.optimization_pass(self.func_args)
         if state is None and not self.goal_state_returned:
@@ -293,16 +290,22 @@ class CutOptimization:
         return self.search_engine.minimum_reached()
 
     def get_stats(self, penultimate: bool = False) -> NDArray[np.int_]:
-        """Return the search-engine statistics."""
+        """Return the search-engine statistics.
+
+        This is a Numpy array containing the number of states visited
+        (dequeued), the number of next-states generated, the number of
+        next-states that are enqueued after cost pruning, and the number
+        of backjumps performed. Return None if no search is performed.
+        If the bool penultimate is set to True, return the stats that
+        correspond to the penultimate step in the search.
+        """
         return self.search_engine.get_stats(penultimate=penultimate)
 
-    def get_upperbound_cost(self) -> tuple[int | float, int | float]:
+    def get_upperbound_cost(self) -> tuple[float, float]:
         """Return the current upperbound cost."""
         return self.search_engine.get_upperbound_cost()
 
-    def update_upperbound_cost(
-        self, cost_bound: tuple[int | float, int | float]
-    ) -> None:
+    def update_upperbound_cost(self, cost_bound: tuple[float, float]) -> None:
         """Update the cost upper bound based on an input cost bound."""
         self.search_engine.update_upperbound_cost(cost_bound)
 
@@ -318,10 +321,12 @@ def max_wire_cuts_circuit(circuit_interface: SimpleGateList) -> int:
     loss of generality we can assume that wire cutting is
     performed only on the inputs to multiqubit gates.
     """
-    multiqubit_wires = [len(x.gate.qubits) for x in circuit_interface.get_multiqubit_gates()]  # type: ignore
+    multiqubit_wires = [
+        len(x.gate.qubits) for x in circuit_interface.get_multiqubit_gates()
+    ]
     return sum(multiqubit_wires)
 
 
 def max_wire_cuts_gamma(max_gamma: float | int) -> int:
-    """Calculate an upper bound on the maximum number of wire cuts that can be made given the maximum allowed gamma."""
+    """Calculate an upper bound on the maximum number of wire cuts that can be made, given the maximum allowed gamma."""
     return int(np.ceil(np.log2(max_gamma + 1) - 1))

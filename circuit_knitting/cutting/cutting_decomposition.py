@@ -29,7 +29,10 @@ from ..utils.transforms import separate_circuit, _partition_labels_from_circuit
 from .qpd.qpd_basis import QPDBasis
 from .qpd.instructions import TwoQubitQPDGate
 from .instructions import CutWire
-from .cut_finding.optimization_settings import OptimizationSettings
+from .cut_finding.optimization_settings import (
+    OptimizationSettings,
+    OptimizationParameters,
+)
 from .cut_finding.quantum_device_constraints import DeviceConstraints
 from .cut_finding.disjoint_subcircuits_state import DisjointSubcircuitsState
 from .cut_finding.circuit_interface import SimpleGateList
@@ -271,57 +274,55 @@ def decompose_observables(
 
 def find_cuts(
     circuit: QuantumCircuit,
-    optimization: dict[str, str | int],
-    constraints: dict[str, int],
-) -> tuple[QuantumCircuit, dict[str, Any]]:
-    """
-    Find cut locations in a circuit, given optimization settings and QPU constraints.
+    optimization: OptimizationParameters,
+    constraints: DeviceConstraints,
+) -> tuple[QuantumCircuit, dict[str, float]]:
+    """Find cut locations in a circuit, given optimization settings and QPU constraints.
 
     Args:
-    circuit: The circuit to cut
+        circuit: The circuit to cut. The circuit must contain only single two-qubit
+            gates.
+        optimization: Options for controlling optimizer behavior. Currently, the optimal
+            cuts are arrived at using Dijkstra's best-first search algorithm. The specified
+            parameters are:
 
-    optimization: Settings dictionary for controlling optimizer behavior. Currently,
-    only a best-first optimizer is supported.
-    - max_gamma: Specifies a constraint on the maximum value of gamma that a
-    solution to the optimization is allowed to have to be considered
-    feasible. Not that the sampling overhead is ``gamma ** 2``.
-    - max_backjumps: Specifies a constraint on the maximum number of backjump
-    operations that can be performed by the search algorithm.
-    - rand_seed: Used to provide a repeatable initialization of the pseudorandom
-    number generators used by the optimization. If ``None`` is used as the
-    seed, then a seed is obtained using an operating system call to achieve
-    an unrepeatable random initialization.
+            - max_gamma: Specifies a constraint on the maximum value of gamma that a
+              solution to the optimization is allowed to have to be considered
+              feasible. Note that the sampling overhead is ``gamma ** 2``.
+            - max_backjumps: Specifies a constraint on the maximum number of backjump
+              operations that can be performed by the search algorithm.
+            - seed: A seed for the pseudorandom number generator used by the optimizer.
 
-    constraints: Dictionary for specifying the constraints on the quantum device(s).
-    - qubits_per_QPU: The maximum number of qubits each subcircuit can contain
-    after cutting.
-    - num_QPUs: The maximum number of subcircuits produced after cutting
-
+        constraints: Options for specifying the constraints for circuit cutting:
+            - qubits_per_qpu: The maximum number of qubits per qpu, which here
+            is the same as the maximum number of number of qubits per subcircuit.
     Returns:
-    A circuit containing :class:`.BaseQPDGate` instances. The subcircuits
-    resulting from cutting these gates will be runnable on the devices
-    specified in ``constraints``.
+        A circuit containing :class:`.BaseQPDGate` instances. The subcircuits
+        resulting from cutting these gates will be runnable on the devices
+        specified in ``constraints``.
 
-    A metadata dictionary:
-    - cuts: A list of length-2 tuples describing each cut in the output circuit.
-    The tuples are formatted as ``(cut_type: str, cut_id: int)``. The
-    cut ID is the index of the cut gate or wire in the output circuit's
-    ``data`` field.
-    - sampling_overhead: The sampling overhead incurred from cutting the specified
-    gates and wires.
+        A metadata dictionary:
+            - cuts: A list of length-2 tuples describing each cut in the output circuit.
+              The tuples are formatted as ``(cut_type: str, cut_id: int)``. The
+              cut ID is the index of the cut gate or wire in the output circuit's
+              ``data`` field.
+            - sampling_overhead: The sampling overhead incurred from cutting the specified
+              gates and wires.
+
+    Raises:
+        ValueError: The input circuit contains a gate acting on more than 2 qubits.
     """
     circuit_cco = qc_to_cco_circuit(circuit)
     interface = SimpleGateList(circuit_cco)
 
-    opt_settings = OptimizationSettings.from_dict(optimization)
-
-    # Hard-code the optimization type to best-first
-    opt_settings.set_engine_selection("CutOptimization", "BestFirst")
-
-    constraint_settings = DeviceConstraints.from_dict(constraints)
+    opt_settings = OptimizationSettings(
+        seed=optimization.seed,
+        max_gamma=optimization.max_gamma,
+        max_backjumps=optimization.max_backjumps,
+    )
 
     # Hard-code the optimizer to an LO-only optimizer
-    optimizer = LOCutsOptimizer(interface, opt_settings, constraint_settings)
+    optimizer = LOCutsOptimizer(interface, opt_settings, constraints)
 
     # Find cut locations
     opt_out = optimizer.optimize()
@@ -353,13 +354,11 @@ def find_cuts(
     counter = 0
     for action in sorted(wire_cut_actions, key=lambda a: a[1][0]):
         inst_id = action.gate_spec.instruction_id
-        # args[0][0] will be either 1 (control) or 2 (target)
+        # action.args[0][0] will be either 1 (control) or 2 (target)
         qubit_id = action.args[0][0] - 1
         circ_out.data.insert(
             inst_id + counter,
-            CircuitInstruction(
-                CutWire(), [circuit.data[inst_id + counter].qubits[qubit_id]], []
-            ),
+            CircuitInstruction(CutWire(), [circuit.data[inst_id].qubits[qubit_id]], []),
         )
         counter += 1
         if action.action.get_name() == "CutBothWires":
@@ -369,7 +368,7 @@ def find_cuts(
             circ_out.data.insert(
                 inst_id + counter,
                 CircuitInstruction(
-                    CutWire(), [circuit.data[inst_id + counter].qubits[qubit_id2]], []
+                    CutWire(), [circuit.data[inst_id].qubits[qubit_id2]], []
                 ),
             )
             counter += 1

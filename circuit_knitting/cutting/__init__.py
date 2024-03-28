@@ -61,6 +61,17 @@ Quasi-Probability Decomposition (QPD)
     qpd.decompose_qpd_instructions
     qpd.qpdbasis_from_instruction
 
+Automatic Cut Finding
+=====================
+
+.. autosummary::
+    :toctree: ../stubs/
+    :nosignatures:
+    :template: autosummary/class_no_inherited_members.rst
+
+    cut_finding.OptimizationParameters
+    cut_finding.DeviceConstraints
+
 CutQC
 =====
 
@@ -87,6 +98,8 @@ from .cutting_decomposition import (
 from .cutting_experiments import generate_cutting_experiments
 from .cutting_reconstruction import reconstruct_expectation_values
 from .wire_cutting_transforms import cut_wires, expand_observables
+from .cut_finding.quantum_device_constraints import DeviceConstraints
+from .cut_finding.optimization_settings import OptimizationParameters
 
 __all__ = [
     "find_cuts",
@@ -98,5 +111,6 @@ __all__ = [
     "PartitionedCuttingProblem",
     "cut_wires",
     "expand_observables",
-    "find_cuts",
+    "DeviceConstraints",
+    "OptimizationParameters",
 ]

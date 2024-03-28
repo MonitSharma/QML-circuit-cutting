@@ -21,17 +21,19 @@ from typing import cast
 class OptimizationSettings:
     """Specify the parameters that control the optimization.
 
-    max_gamma specifies a constraint on the maximum value of gamma that a
-    solution to the optimization is allowed to have to be considered feasible.
+    ``max_gamma`` specifies a constraint on the maximum value of gamma that a
+    solution is allowed to have to be considered feasible. If a solution exists
+    but the associated gamma exceeds ``max_gamma``, :func:`.greedy_best_first_search`,
+    which is used to warm start, the search engine will still attempt to return a
+    solution.
 
-    engine_selections is a dictionary that defines the selection
-    of search engines for the optimization. In this release
-    only "BestFirst" or Dijkstra's best-first search is supported.
+    ``engine_selections`` is a dictionary that defines the selection
+    of search engines for the optimization.
 
-    max_backjumps specifies a constraint on the maximum number of backjump
+    ``max_backjumps`` specifies any constraints on the maximum number of backjump
     operations that can be performed by the search algorithm.
 
-    rand_seed is a seed used to provide a repeatable initialization
+    ``seed`` is a seed used to provide a repeatable initialization
     of the pesudorandom number generators used by the optimization.
     If None is used as the random seed, then a seed is obtained using an
     operating-system call to achieve an unrepeatable randomized initialization.
@@ -40,9 +42,9 @@ class OptimizationSettings:
     flags have been incorporated with an eye towards future releases.
     """
 
-    max_gamma: int = 1024
-    max_backjumps: int = 10000
-    rand_seed: int | None = None
+    max_gamma: float = 1024
+    max_backjumps: None | int = 10000
+    seed: int | None = None
     LO: bool = True
     LOCC_ancillas: bool = False
     LOCC_no_ancillas: bool = False
@@ -52,7 +54,7 @@ class OptimizationSettings:
         """Post-init method for the data class."""
         if self.max_gamma < 1:
             raise ValueError("max_gamma must be a positive definite integer.")
-        if self.max_backjumps < 0:
+        if self.max_backjumps is not None and self.max_backjumps < 0:
             raise ValueError("max_backjumps must be a positive semi-definite integer.")
 
         self.gate_cut_LO = self.LO
@@ -64,17 +66,23 @@ class OptimizationSettings:
         if self.engine_selections is None:
             self.engine_selections = {"CutOptimization": "BestFirst"}
 
-    def get_max_gamma(self) -> int:
+    @property
+    def get_max_gamma(self) -> float:
         """Return the constraint on the maxiumum allowed value of gamma."""
         return self.max_gamma
 
-    def get_max_backjumps(self) -> int:
-        """Return the maximum number of allowed search backjumps."""
+    @property
+    def get_max_backjumps(self) -> None | int:
+        """Return the maximum number of allowed search backjumps.
+
+        `None` denotes that there is no such restriction in place.
+        """
         return self.max_backjumps
 
-    def get_rand_seed(self) -> int | None:
+    @property
+    def get_seed(self) -> int | None:
         """Return the seed used to generate the pseudorandom numbers used in the optimizaton."""
-        return self.rand_seed
+        return self.seed
 
     def get_engine_selection(self, stage_of_optimization: str) -> str:
         """Return the name of the search engine to employ."""
@@ -124,7 +132,15 @@ class OptimizationSettings:
 
         return out
 
-    @classmethod
-    def from_dict(cls, options: dict) -> OptimizationSettings:
-        """Return an instance of :class:`OptimizationSettings` initialized with the parameters passed in."""
-        return cls(**options)
+
+@dataclass
+class OptimizationParameters:
+    """Specify a subset of parameters that control the optimization.
+
+    The other attributes of :class:`OptimizationSettings` are taken
+    to be private.
+    """
+
+    seed: int | None = OptimizationSettings().seed
+    max_gamma: float = OptimizationSettings().max_gamma
+    max_backjumps: None | int = OptimizationSettings().max_backjumps

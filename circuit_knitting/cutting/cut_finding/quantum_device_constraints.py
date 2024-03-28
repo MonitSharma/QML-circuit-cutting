@@ -18,23 +18,15 @@ from dataclasses import dataclass
 
 @dataclass
 class DeviceConstraints:
-    """Specify the characteristics (qubits per QPU and number of QPUs) of the target quantum device that must be respected."""
+    """Specify the constraints (qubits per QPU) that must be respected."""
 
-    qubits_per_QPU: int
-    num_QPUs: int
+    qubits_per_qpu: int
 
     def __post_init__(self):
         """Post-init method for data class."""
-        if self.qubits_per_QPU < 1 or self.num_QPUs < 1:
-            raise ValueError(
-                "qubits_per_QPU and num_QPUs must be positive definite integers."
-            )
+        if self.qubits_per_qpu < 1:
+            raise ValueError("qubits_per_QPU must be a positive definite integer.")
 
     def get_qpu_width(self) -> int:
         """Return the number of qubits supported on each individual QPU."""
-        return self.qubits_per_QPU
-
-    @classmethod
-    def from_dict(cls, options: dict[str, int]) -> DeviceConstraints:
-        """Return an instance of :class:`DeviceConstraints` initialized with the parameters passed in."""
-        return cls(**options)
+        return self.qubits_per_qpu
